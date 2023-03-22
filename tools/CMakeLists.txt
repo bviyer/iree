@@ -300,22 +300,11 @@ if(IREE_BUILD_COMPILER)
     SRCS
       "iree-run-mlir-main.cc"
     DEPS
-      LLVMSupport
-      MLIRIR
-      MLIRParser
-      MLIRPass
-      MLIRSupport
-      MLIRTargetLLVMIRExport
       iree::base
       iree::base::internal::flags
       iree::base::tracing
-      iree::compiler::ConstEval
-      iree::compiler::Dialect::HAL::Target
-      iree::compiler::Dialect::VM::Target::Bytecode
-      iree::compiler::Dialect::VM::Target::init_targets
-      iree::compiler::Pipelines
-      iree::compiler::Tools::init_passes_and_dialects
-      iree::compiler::Tools::init_targets
+      iree::compiler::bindings::c::headers
+      iree::compiler::API::Impl
       iree::hal
       iree::modules::hal::types
       iree::tooling::context_util

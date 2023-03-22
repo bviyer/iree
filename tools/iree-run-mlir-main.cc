@@ -33,6 +33,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -41,13 +42,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/flags.h"
 #include "iree/base/tracing.h"
-#include "iree/compiler/ConstEval/Passes.h"
-#include "iree/compiler/Dialect/HAL/Target/TargetBackend.h"
-#include "iree/compiler/Dialect/VM/Target/Bytecode/BytecodeModuleTarget.h"
-#include "iree/compiler/Dialect/VM/Target/init_targets.h"
-#include "iree/compiler/Pipelines/Pipelines.h"
-#include "iree/compiler/Tools/init_dialects.h"
-#include "iree/compiler/Tools/init_targets.h"
+#include "iree/compiler/embedding_api.h"
 #include "iree/hal/api.h"
 #include "iree/modules/hal/types.h"
 #include "iree/tooling/context_util.h"
@@ -55,89 +50,59 @@
 #include "iree/tooling/vm_util.h"
 #include "iree/vm/api.h"
 #include "iree/vm/bytecode/module.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
-#include "llvm/ADT/iterator.h"
-#include "llvm/ADT/iterator_range.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/SMLoc.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
-#include "mlir/IR/AsmState.h"
-#include "mlir/IR/BlockSupport.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Dialect.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/OpDefinition.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/OwningOpRef.h"
-#include "mlir/Parser/Parser.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Support/FileUtilities.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 
-static llvm::cl::opt<std::string> input_file_flag{
-    llvm::cl::Positional,
-    llvm::cl::desc("<input .mlir file>"),
-    llvm::cl::init("-"),
-};
+// static llvm::cl::opt<std::string> input_file_flag{
+//     llvm::cl::Positional,
+//     llvm::cl::desc("<input .mlir file>"),
+//     llvm::cl::init("-"),
+// };
 
-static llvm::cl::opt<bool> split_input_file_flag{
-    "split-input-file",
-    llvm::cl::desc("Split the input file into multiple modules"),
-    llvm::cl::init(true),
-};
+// static llvm::cl::opt<bool> split_input_file_flag{
+//     "split-input-file",
+//     llvm::cl::desc("Split the input file into multiple modules"),
+//     llvm::cl::init(true),
+// };
 
-static llvm::cl::opt<bool> verify_passes_flag(
-    "verify-each",
-    llvm::cl::desc("Run the verifier after each transformation pass"),
-    llvm::cl::init(true));
+// static llvm::cl::opt<bool> verify_passes_flag(
+//     "verify-each",
+//     llvm::cl::desc("Run the verifier after each transformation pass"),
+//     llvm::cl::init(true));
 
-static llvm::cl::opt<bool> print_mlir_flag{
-    "print-mlir",
-    llvm::cl::desc("Prints MLIR IR after translation"),
-    llvm::cl::init(false),
-};
+// static llvm::cl::opt<bool> print_mlir_flag{
+//     "print-mlir",
+//     llvm::cl::desc("Prints MLIR IR after translation"),
+//     llvm::cl::init(false),
+// };
 
-static llvm::cl::opt<bool> print_annotated_mlir_flag{
-    "print-annotated-mlir",
-    llvm::cl::desc("Prints MLIR IR with final serialization annotations"),
-    llvm::cl::init(false),
-};
+// static llvm::cl::opt<bool> print_annotated_mlir_flag{
+//     "print-annotated-mlir",
+//     llvm::cl::desc("Prints MLIR IR with final serialization annotations"),
+//     llvm::cl::init(false),
+// };
 
-static llvm::cl::opt<bool> print_flatbuffer_flag{
-    "print-flatbuffer",
-    llvm::cl::desc("Prints Flatbuffer text after serialization"),
-    llvm::cl::init(false),
-};
+// static llvm::cl::opt<bool> print_flatbuffer_flag{
+//     "print-flatbuffer",
+//     llvm::cl::desc("Prints Flatbuffer text after serialization"),
+//     llvm::cl::init(false),
+// };
 
-static llvm::cl::opt<std::string> output_file_flag{
-    "o",
-    llvm::cl::desc("File path in which to write the compiled module file"),
-    llvm::cl::init(""),
-};
+// static llvm::cl::opt<std::string> output_file_flag{
+//     "o",
+//     llvm::cl::desc("File path in which to write the compiled module file"),
+//     llvm::cl::init(""),
+// };
 
-static llvm::cl::opt<bool> run_flag{
-    "run",
-    llvm::cl::desc("Runs the module (vs. just compiling and verifying)"),
-    llvm::cl::init(true),
-};
+// static llvm::cl::opt<bool> run_flag{
+//     "run",
+//     llvm::cl::desc("Runs the module (vs. just compiling and verifying)"),
+//     llvm::cl::init(true),
+// };
 
-static llvm::cl::list<std::string> run_args_flag{
-    "run-arg",
-    llvm::cl::desc("Argument passed to the execution flag parser"),
-    llvm::cl::ConsumeAfter,
-};
+// static llvm::cl::list<std::string> run_args_flag{
+//     "run-arg",
+//     llvm::cl::desc("Argument passed to the execution flag parser"),
+//     llvm::cl::ConsumeAfter,
+// };
 
 IREE_FLAG_LIST(
     string, input,
@@ -189,6 +154,11 @@ IREE_FLAG(int32_t, output_max_element_count, 1024,
 namespace iree {
 namespace {
 
+bool starts_with(std::string_view prefix, std::string_view in_str) {
+  return in_str.size() >= prefix.size() &&
+         in_str.compare(0, prefix.size(), prefix) == 0;
+}
+
 // Tries to guess a default device name from the backend, where possible.
 // Users are still able to override this by passing in --device= flags.
 std::string InferDefaultDeviceFromBackend(const std::string& backend) {
@@ -208,144 +178,23 @@ std::string InferDefaultDeviceFromBackend(const std::string& backend) {
 // Returns a list of target compiler backends to use for file evaluation.
 Status GetTargetBackends(std::vector<std::string>* out_target_backends) {
   IREE_TRACE_SCOPE();
-  out_target_backends->clear();
-  auto target_backends =
-      mlir::iree_compiler::IREE::HAL::TargetOptions::FromFlags::get().targets;
-  if (target_backends.empty()) {
-    iree_allocator_t host_allocator = iree_allocator_system();
-    iree_host_size_t driver_info_count = 0;
-    iree_hal_driver_info_t* driver_infos = NULL;
-    IREE_RETURN_IF_ERROR(iree_hal_driver_registry_enumerate(
-        iree_hal_available_driver_registry(), host_allocator,
-        &driver_info_count, &driver_infos));
-    for (iree_host_size_t i = 0; i < driver_info_count; ++i) {
-      target_backends.push_back(std::string(driver_infos[i].driver_name.data,
-                                            driver_infos[i].driver_name.size));
-    }
-    iree_allocator_free(host_allocator, driver_infos);
-  }
-  *out_target_backends = std::move(target_backends);
-  return OkStatus();
-}
-
-void BuildDefaultIREEVMTransformPassPipeline(mlir::OpPassManager& passManager) {
-  static mlir::iree_compiler::IREEVMPipelineHooks defaultHooks = {
-      // buildConstEvalPassPipelineCallback =
-      [](mlir::OpPassManager& pm) {
-        pm.addPass(mlir::iree_compiler::ConstEval::createJitGlobalsPass());
-      }};
-
-  buildIREEVMTransformPassPipeline(
-      mlir::iree_compiler::BindingOptions::FromFlags::get(),
-      mlir::iree_compiler::InputDialectOptions::FromFlags::get(),
-      mlir::iree_compiler::PreprocessingOptions::FromFlags::get(),
-      mlir::iree_compiler::HighLevelOptimizationOptions::FromFlags::get(),
-      mlir::iree_compiler::SchedulingOptions::FromFlags::get(),
-      mlir::iree_compiler::IREE::HAL::TargetOptions::FromFlags::get(),
-      mlir::iree_compiler::IREE::VM::TargetOptions::FromFlags::get(),
-      defaultHooks, passManager);
-}
-
-// Prepares a module for evaluation by running MLIR import and IREE translation.
-// Returns the serialized flatbuffer data.
-Status PrepareModule(std::string target_backend,
-                     std::unique_ptr<llvm::MemoryBuffer> file_buffer,
-                     mlir::DialectRegistry& registry, std::string* out_module) {
-  IREE_TRACE_SCOPE();
-  out_module->clear();
-
-  mlir::MLIRContext context;
-  context.appendDialectRegistry(registry);
-  context.allowUnregisteredDialects();
-
-  // Parse input MLIR module.
-  llvm::SourceMgr source_mgr;
-  source_mgr.AddNewSourceBuffer(std::move(file_buffer), llvm::SMLoc());
-  mlir::OwningOpRef<mlir::ModuleOp> mlir_module =
-      mlir::parseSourceFile<mlir::ModuleOp>(source_mgr, &context);
-  if (!mlir_module) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "could not parse MLIR file");
-  }
-
-  // Translate from MLIR to IREE bytecode.
-  printf("Compiling for target backend '%s'...\n", target_backend.c_str());
-  mlir::PassManager pass_manager(mlir_module->getContext());
-  pass_manager.enableVerifier(verify_passes_flag);
-  if (failed(mlir::applyPassManagerCLOptions(pass_manager))) {
-    return iree_make_status(IREE_STATUS_INTERNAL,
-                            "failed to apply pass manager CL options");
-  }
-  mlir::applyDefaultTimingPassManagerCLOptions(pass_manager);
-  BuildDefaultIREEVMTransformPassPipeline(pass_manager);
-  if (failed(pass_manager.run(mlir_module.get()))) {
-    return iree_make_status(IREE_STATUS_INTERNAL,
-                            "conversion from source -> vm failed");
-  }
-
-  if (print_mlir_flag) {
-    mlir_module->dump();
-  }
-
-  // NOTE: if we have an output file specified then we could compile into that
-  // for greater efficiency. Today we assume that users aren't passing multi-GB
-  // models through this tool (or if they are they have the memory to run them).
-  auto vm_options =
-      mlir::iree_compiler::IREE::VM::TargetOptions::FromFlags::get();
-  auto bytecode_options =
-      mlir::iree_compiler::IREE::VM::BytecodeTargetOptions::FromFlags::get();
-  std::string binary_contents;
-  llvm::raw_string_ostream binary_output(binary_contents);
-  if (failed(mlir::iree_compiler::IREE::VM::translateModuleToBytecode(
-          mlir_module.get(), vm_options, bytecode_options, binary_output))) {
-    return iree_make_status(
-        IREE_STATUS_INTERNAL,
-        "serialization to flatbuffer bytecode (binary) failed");
-  }
-  binary_output.flush();
-
-  // Print the annotated MLIR and flatbuffer; easiest way right now is to just
-  // do it all again.
-  if (print_annotated_mlir_flag) {
-    bytecode_options.outputFormat =
-        mlir::iree_compiler::IREE::VM::BytecodeOutputFormat::kAnnotatedMlirText;
-    std::string text_contents;
-    llvm::raw_string_ostream text_output(text_contents);
-    if (failed(mlir::iree_compiler::IREE::VM::translateModuleToBytecode(
-            mlir_module.get(), vm_options, bytecode_options, text_output))) {
-      return iree_make_status(IREE_STATUS_INTERNAL,
-                              "serialization to annotated MLIR (text) failed");
-    }
-    text_output.flush();
-    fprintf(stderr, "%s\n", text_contents.c_str());
-  }
-  if (print_flatbuffer_flag) {
-    bytecode_options.outputFormat =
-        mlir::iree_compiler::IREE::VM::BytecodeOutputFormat::kFlatBufferText;
-    std::string text_contents;
-    llvm::raw_string_ostream text_output(text_contents);
-    if (failed(mlir::iree_compiler::IREE::VM::translateModuleToBytecode(
-            mlir_module.get(), vm_options, bytecode_options, text_output))) {
-      return iree_make_status(
-          IREE_STATUS_INTERNAL,
-          "serialization to flatbuffer bytecode (text) failed");
-    }
-    text_output.flush();
-    fprintf(stderr, "%s\n", text_contents.c_str());
-  }
-  if (!output_file_flag.empty()) {
-    if (llvm::writeToOutput(
-            output_file_flag, [&](llvm::raw_ostream& os) -> llvm::Error {
-              os.write(binary_contents.data(), binary_contents.size());
-              return llvm::Error::success();
-            })) {
-      return iree_make_status(IREE_STATUS_PERMISSION_DENIED,
-                              "unable to write module output to %s",
-                              output_file_flag.c_str());
-    }
-  }
-
-  *out_module = std::move(binary_contents);
+  // out_target_backends->clear();
+  // auto target_backends =
+  //     mlir::iree_compiler::IREE::HAL::TargetOptions::FromFlags::get().targets;
+  // if (target_backends.empty()) {
+  //   iree_allocator_t host_allocator = iree_allocator_system();
+  //   iree_host_size_t driver_info_count = 0;
+  //   iree_hal_driver_info_t* driver_infos = NULL;
+  //   IREE_RETURN_IF_ERROR(iree_hal_driver_registry_enumerate(
+  //       iree_hal_available_driver_registry(), host_allocator,
+  //       &driver_info_count, &driver_infos));
+  //   for (iree_host_size_t i = 0; i < driver_info_count; ++i) {
+  //     target_backends.push_back(std::string(driver_infos[i].driver_name.data,
+  //                                           driver_infos[i].driver_name.size));
+  //   }
+  //   iree_allocator_free(host_allocator, driver_infos);
+  // }
+  // *out_target_backends = std::move(target_backends);
   return OkStatus();
 }
 
@@ -407,7 +256,7 @@ Status EvaluateFunction(iree_vm_context_t* context, iree_hal_device_t* device,
 // Evaluates all exported functions within given module.
 Status EvaluateFunctions(iree_vm_instance_t* instance,
                          const std::string& default_device_uri,
-                         const std::string& flatbuffer_data) {
+                         void* binary_contents, uint64_t binary_size) {
   IREE_TRACE_SCOPE0("EvaluateFunctions");
 
   // Load any custom modules the user may have explicitly specified and then
@@ -422,9 +271,7 @@ Status EvaluateFunctions(iree_vm_instance_t* instance,
   // with devices.
   vm::ref<iree_vm_module_t> main_module;
   IREE_RETURN_IF_ERROR(iree_vm_bytecode_module_create(
-      instance,
-      iree_make_const_byte_span((void*)flatbuffer_data.data(),
-                                flatbuffer_data.size()),
+      instance, iree_make_const_byte_span(binary_contents, binary_size),
       iree_allocator_null(), iree_allocator_system(), &main_module));
   IREE_RETURN_IF_ERROR(
       iree_tooling_module_list_push_back(&module_list, main_module.get()));
@@ -496,9 +343,7 @@ Status EvaluateFunctions(iree_vm_instance_t* instance,
   return evaluate_status;
 }
 
-// Translates and runs a single LLVM file buffer.
-Status EvaluateFile(std::unique_ptr<llvm::MemoryBuffer> file_buffer,
-                    mlir::DialectRegistry& registry) {
+Status EvaluateFile(void* binary_contents, uint64_t binary_size) {
   IREE_TRACE_SCOPE0("EvaluateFile");
 
   vm::ref<iree_vm_instance_t> instance;
@@ -506,24 +351,20 @@ Status EvaluateFile(std::unique_ptr<llvm::MemoryBuffer> file_buffer,
       iree_tooling_create_instance(iree_allocator_system(), &instance),
       "Creating instance");
 
-  std::vector<std::string> target_backends;
+  // TODO: Get the target backend inference back.
+  std::vector<std::string> target_backends = {"vmvx"};
   IREE_RETURN_IF_ERROR(GetTargetBackends(&target_backends));
   for (const auto& target_backend : target_backends) {
     // Prepare the module for execution and evaluate it.
     IREE_TRACE_FRAME_MARK();
-    auto cloned_file_buffer = llvm::MemoryBuffer::getMemBufferCopy(
-        file_buffer->getBuffer(), file_buffer->getBufferIdentifier());
-    std::string flatbuffer_data;
-    IREE_RETURN_IF_ERROR(
-        PrepareModule(target_backend + '*', std::move(cloned_file_buffer),
-                      registry, &flatbuffer_data),
-        "Translating module");
-    IREE_TRACE_FRAME_MARK();
-    std::string default_device_uri =
-        InferDefaultDeviceFromBackend(target_backend);
-    IREE_RETURN_IF_ERROR(
-        EvaluateFunctions(instance.get(), default_device_uri, flatbuffer_data),
-        "Evaluating functions");
+    // TODO: Get device_uri inference back.
+    // std::string default_device_uri =
+    //     InferDefaultDeviceFromBackend(target_backend);
+    std::string default_device_uri = "local-task";
+    (void)target_backend;
+    IREE_RETURN_IF_ERROR(EvaluateFunctions(instance.get(), default_device_uri,
+                                           binary_contents, binary_size),
+                         "Evaluating functions");
   }
 
   instance.reset();
@@ -531,114 +372,203 @@ Status EvaluateFile(std::unique_ptr<llvm::MemoryBuffer> file_buffer,
 }
 
 // Runs the given .mlir file based on the current flags.
-Status RunFile(const std::string& mlir_filename,
-               mlir::DialectRegistry& registry) {
+Status RunFile(const char* mlir_filename, iree_compiler_session_t* session) {
   IREE_TRACE_SCOPE0("RunFile");
 
-  // Load input file/from stdin.
-  std::string error_message;
-  auto file = mlir::openInputFile(mlir_filename, &error_message);
-  if (!file) {
-    return iree_make_status(
-        IREE_STATUS_NOT_FOUND, "unable to open input file %.*s: %s",
-        (int)mlir_filename.size(), mlir_filename.data(), error_message.c_str());
-  }
+  // Query the session for the hal-target-backends flag.
+  // TODO: Not doing anything with this yet. Just showing the incantation.
+  std::string target_backends_flag;
+  ireeCompilerSessionGetFlags(
+      session, false,
+      [](const char* flag, size_t length, void* userdata) {
+        std::string_view prefix = "--iree-hal-target-backends=";
+        if (starts_with(prefix, std::string_view(flag, length))) {
+          std::string* result = static_cast<std::string*>(userdata);
+          *result = std::string(flag, length);
+          fprintf(stderr, "TARGET BACKENDS: %s\n", result->c_str());
+        }
+      },
+      static_cast<void*>(&target_backends_flag));
 
-  if (!split_input_file_flag) {
-    // Use entire buffer as a single module.
-    return EvaluateFile(std::move(file), registry);
-  }
-
-  // Split the buffer into separate modules and evaluate independently.
-  // This matches the --split-input-file arg to mlir-opt.
-  const char kSplitMarker[] = "// -----";
-  auto* full_buffer = file.get();
-  llvm::SmallVector<llvm::StringRef, 8> source_buffers;
-  full_buffer->getBuffer().split(source_buffers, kSplitMarker);
-
-  // Add the original buffer to the source manager.
-  llvm::SourceMgr file_source_mgr;
-  file_source_mgr.AddNewSourceBuffer(std::move(file), llvm::SMLoc());
-
-  // Process each chunk in turn. Only return the first error (but log all).
-  Status any_failure;
-  for (auto& sub_source_buffer : source_buffers) {
-    auto split_loc = llvm::SMLoc::getFromPointer(sub_source_buffer.data());
-    unsigned split_line = file_source_mgr.getLineAndColumn(split_loc).first;
-    auto sub_buffer = llvm::MemoryBuffer::getMemBufferCopy(
-        sub_source_buffer, full_buffer->getBufferIdentifier() +
-                               llvm::Twine(" split at line #") +
-                               llvm::Twine(split_line));
-    auto sub_failure = EvaluateFile(std::move(sub_buffer), registry);
-    if (!sub_failure.ok()) {
-      fprintf(stderr, "Failure for split at line #%u: %s\n", split_line,
-              sub_failure.ToString().c_str());
-      if (any_failure.ok()) {
-        any_failure = std::move(sub_failure);
+  struct MainState {
+    iree_compiler_source_t* source = nullptr;
+    std::vector<iree_compiler_source_t*> splitSources;
+    ~MainState() {
+      for (auto* splitSource : splitSources) {
+        ireeCompilerSourceDestroy(splitSource);
+      }
+      if (source) {
+        ireeCompilerSourceDestroy(source);
       }
     }
+    void handleError(iree_compiler_error_t* error) {
+      const char* msg = ireeCompilerErrorGetMessage(error);
+      fprintf(stderr, "error compiling input file: %s\n", msg);
+      ireeCompilerErrorDestroy(error);
+    }
+  };
+  MainState s;
+  if (auto error =
+          ireeCompilerSourceOpenFile(session, mlir_filename, &s.source)) {
+    s.handleError(error);
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION);
   }
 
-  return any_failure;
+  auto processBuffer = [&](iree_compiler_source_t* source) -> Status {
+    IREE_TRACE_FRAME_MARK();
+    // Stash per-invocation state in an RAII instance.
+    struct InvState {
+      InvState(MainState& s, iree_compiler_session_t* session) {
+        inv = ireeCompilerInvocationCreate(session);
+      }
+      ~InvState() {
+        ireeCompilerInvocationDestroy(inv);
+        if (output) ireeCompilerOutputDestroy(output);
+      }
+      iree_compiler_invocation_t* inv;
+      iree_compiler_output_t* output = nullptr;
+    };
+    InvState r(s, session);
+    if (auto error = ireeCompilerOutputOpenMembuffer(&r.output)) {
+      s.handleError(error);
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "failed to open output buffer");
+    }
+
+    ireeCompilerInvocationEnableConsoleDiagnostics(r.inv);
+    if (!ireeCompilerInvocationParseSource(r.inv, source))
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "failed to parse input file");
+    if (!ireeCompilerInvocationPipeline(r.inv, IREE_COMPILER_PIPELINE_STD)) {
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "failed to invoke main compiler pipeline");
+    }
+    if (auto error = ireeCompilerInvocationOutputVMBytecode(r.inv, r.output)) {
+      s.handleError(error);
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "failed to emit output binary");
+    }
+
+    void* binary_data;
+    uint64_t binary_size;
+    if (auto error =
+            ireeCompilerOutputMapMemory(r.output, &binary_data, &binary_size)) {
+      s.handleError(error);
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "failed to access compiled memory buffer");
+    }
+    return EvaluateFile(binary_data, binary_size);
+  };
+
+  bool split_input_file_flag = false;  // TODO: get from flag
+  if (split_input_file_flag) {
+    if (auto error = ireeCompilerSourceSplit(
+            s.source,
+            [](iree_compiler_source_t* source, void* userData) {
+              MainState* userState = static_cast<MainState*>(userData);
+              userState->splitSources.push_back(source);
+            },
+            static_cast<void*>(&s))) {
+      s.handleError(error);
+      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION);
+    }
+    for (auto* splitSource : s.splitSources) {
+      IREE_RETURN_IF_ERROR(processBuffer(splitSource));
+    }
+    return OkStatus();
+  } else {
+    return processBuffer(s.source);
+  }
+
+  return OkStatus();
 }
 
 }  // namespace
 
-extern "C" int main(int argc_llvm, char** argv_llvm) {
+extern "C" int main(int argc_raw, char** argv_raw) {
   IREE_TRACE_SCOPE0("iree-run-mlir");
+  ireeCompilerGlobalInitialize();
+  // Pre-process the arguments with the compiler's argument parser since it
+  // has super-powers on Windows and must work on the default main arguments.
+  ireeCompilerGetProcessCLArgs(&argc_raw, const_cast<const char***>(&argv_raw));
 
-  mlir::DialectRegistry registry;
-  mlir::iree_compiler::registerAllDialects(registry);
-  mlir::iree_compiler::registerHALTargetBackends();
-  mlir::iree_compiler::registerVMTargets();
-  mlir::registerBuiltinDialectTranslation(registry);
-  mlir::registerLLVMDialectTranslation(registry);
-  // Make sure command line options are registered.
-  // Flag options structs (must resolve prior to CLI parsing).
-  (void)mlir::iree_compiler::BindingOptions::FromFlags::get();
-  (void)mlir::iree_compiler::InputDialectOptions::FromFlags::get();
-  (void)mlir::iree_compiler::HighLevelOptimizationOptions::FromFlags::get();
-  (void)mlir::iree_compiler::SchedulingOptions::FromFlags::get();
-  (void)mlir::iree_compiler::IREE::HAL::TargetOptions::FromFlags::get();
-  (void)mlir::iree_compiler::IREE::VM::TargetOptions::FromFlags::get();
-  (void)mlir::iree_compiler::IREE::VM::BytecodeTargetOptions::FromFlags::get();
+  // Do some light pre-processing:
+  // Everything after "--" goes to the compiler. Also any "-Xcompiler"
+  // args.
+  std::vector<std::unique_ptr<std::string>> temp_strings;
+  std::vector<char*> runtime_args = {argv_raw[0]};
+  std::vector<char*> compiler_args = {argv_raw[0]};
+  bool parsing_runtime_args = true;
+  std::string_view xcompilerPrefix = "-Xcompiler,";
+  for (int i = 1; i < argc_raw; ++i) {
+    char* current_arg = argv_raw[i];
+    // Always ok because argv is null terminated.
+    char* next_arg = argv_raw[i + 1];
+    if (!parsing_runtime_args) {
+      compiler_args.push_back(current_arg);
+      continue;
+    }
+    std::string_view check_arg(current_arg);
 
-  // Register MLIRContext command-line options like
-  // -mlir-print-op-on-diagnostic.
-  mlir::registerMLIRContextCLOptions();
-  // Register assembly printer command-line options like
-  // -mlir-print-op-generic.
-  mlir::registerAsmPrinterCLOptions();
-  // Register pass manager command-line options like -mlir-print-ir-*.
-  mlir::registerPassManagerCLOptions();
-
-  // On Windows InitLLVM re-queries the command line from Windows directly and
-  // totally messes up the array.
-  llvm::setBugReportMsg(
-      "Please report issues to https://github.com/openxla/iree/issues and "
-      "include the crash backtrace.\n");
-  llvm::InitLLVM init_llvm(argc_llvm, argv_llvm);
-  llvm::cl::ParseCommandLineOptions(argc_llvm, argv_llvm);
-
-  // Consume all options after the positional filename and pass them to the IREE
-  // flag parser.
-  std::vector<char*> argv_iree = {argv_llvm[0]};
-  for (auto& run_arg : run_args_flag) {
-    if (run_arg == "--") continue;
-    argv_iree.push_back(const_cast<char*>(run_arg.c_str()));
+    if (check_arg == "--") {
+      // All else to compiler.
+      parsing_runtime_args = false;
+    } else if (check_arg == "-Xcompiler") {
+      // Skip and next goes to compiler.
+      if (!next_arg || strcmp(next_arg, "--") == 0) {
+        fprintf(stderr,
+                "Syntax error: -Xcompiler must be followed by an argument to "
+                "pass to the compiler but got none\n");
+        return 1;
+      }
+      compiler_args.push_back(next_arg);
+      i++;
+    } else if (starts_with(xcompilerPrefix, check_arg)) {
+      // Split by comma into compiler args.
+      std::string_view sub_arg = check_arg.substr(xcompilerPrefix.size());
+      for (;;) {
+        size_t commaPos = sub_arg.find_first_of(',');
+        if (commaPos == std::string_view::npos) break;
+        temp_strings.push_back(
+            std::make_unique<std::string>(sub_arg.substr(0, commaPos)));
+        compiler_args.push_back(temp_strings.back()->data());
+        sub_arg = sub_arg.substr(commaPos + 1);
+      }
+      temp_strings.push_back(std::make_unique<std::string>(sub_arg));
+      compiler_args.push_back(temp_strings.back()->data());
+    } else {
+      runtime_args.push_back(current_arg);
+    }
   }
-  int argc_iree = static_cast<int>(argv_iree.size());
-  char** argv_iree_ptr = argv_iree.data();
-  iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &argc_iree,
-                           &argv_iree_ptr);
 
-  auto status = RunFile(input_file_flag, registry);
-  if (!status.ok()) {
-    fprintf(stderr, "ERROR running file (%s):\n%s\n", input_file_flag.c_str(),
-            status.ToString().c_str());
-    return 1;
+  // Add nullptrs to end to match real argv behavior.
+  compiler_args.push_back(nullptr);
+  runtime_args.push_back(nullptr);
+
+  ireeCompilerSetupGlobalCL(compiler_args.size() - 1,
+                            const_cast<const char**>(compiler_args.data()),
+                            "iree-run-mlir",
+                            /*installSignalHandlers=*/true);
+  int runtime_argc = runtime_args.size() - 1;
+  char** runtime_argv = runtime_args.data();
+  // Note that positional args are left in runtime_argv.
+  iree_flags_parse_checked(IREE_FLAGS_PARSE_MODE_DEFAULT, &runtime_argc,
+                           &runtime_argv);
+
+  // Loop over each file and compile/run it.
+  int rc = 0;
+  iree_compiler_session_t* session = ireeCompilerSessionCreate();
+  for (int i = 1; i < runtime_argc; ++i) {
+    auto status = RunFile(runtime_argv[i], session);
+    if (!status.ok()) {
+      rc = 2;
+      break;
+    }
   }
-  return 0;
+
+  ireeCompilerSessionDestroy(session);
+  ireeCompilerGlobalShutdown();
+  return rc;
 }
 
 }  // namespace iree
