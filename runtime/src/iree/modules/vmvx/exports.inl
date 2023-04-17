@@ -60,7 +60,6 @@ EXPORT_FN("sub.2d.f32", iree_uk_x32b_subf_2d, ukernel_x32b_2d, rIrIrIIIIIIIII, v
 EXPORT_FN("sub.2d.i32", iree_uk_x32b_subi_2d, ukernel_x32b_2d, rIrIrIIIIIIIII, v)
 EXPORT_FN("unpack.f32f32", iree_vmvx_unpack_f32f32, unpack, rIrIIIIIIIIIi, v)
 EXPORT_FN("unpack.i32i32", iree_vmvx_unpack_i32i32, unpack, rIrIIIIIIIIIi, v)
-EXPORT_FN("unpack.i8i8", iree_vmvx_unpack_i8i8, unpack, rIrIIIIIIIIIi, v)
 EXPORT_FN("xor.2d.i32", iree_uk_x32b_xori_2d, ukernel_x32b_2d, rIrIrIIIIIIIII, v)
 
 // clang-format on

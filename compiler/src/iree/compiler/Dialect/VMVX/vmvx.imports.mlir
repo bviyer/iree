@@ -632,25 +632,6 @@ vm.import private @unpack.f32f32(
   %flags : i32
 )
 
-vm.import private @unpack.i8i8(
-  // Input buffers
-  %in_buffer : !vm.buffer,
-  %in_offset : i64,
-  // Output buffers
-  %out_buffer : !vm.buffer,
-  %out_offset : i64,
-  // Other operands
-  %in_stride0 : i64,
-  %out_stride0 : i64,
-  %in_size0 : i64,
-  %in_size1 : i64,
-  %in_size2 : i64,
-  %in_size3 : i64,
-  %out_size0 : i64,
-  %out_size1 : i64,
-  %flags : i32
-)
-
 vm.import private @unpack.i32i32(
   // Input buffers
   %in_buffer : !vm.buffer,
